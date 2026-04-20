@@ -263,10 +263,12 @@ class Selector:
         win32gui.SetLayeredWindowAttributes(self._hwnd, 0, 160, win32con.LWA_ALPHA)
         win32gui.ShowWindow(self._hwnd, win32con.SW_SHOW)
         win32gui.SetForegroundWindow(self._hwnd)
+        _u = ctypes.windll.user32
         msg = wintypes.MSG()
-        while win32gui.GetMessage(msg, 0, 0, 0) != (0, 0):
-            win32gui.TranslateMessage(msg)
-            win32gui.DispatchMessage(msg)
+        pmsg = ctypes.byref(msg)
+        while _u.GetMessageW(pmsg, None, 0, 0) != 0:
+            _u.TranslateMessage(pmsg)
+            _u.DispatchMessageW(pmsg)
             if self.rect:
                 break
         try:
@@ -324,20 +326,14 @@ def setup_tray(tts: TTS):
 
     win32gui.Shell_NotifyIcon(win32con.NIM_ADD, nid)
 
-    # Tray message loop
+    # Tray message loop — pure ctypes to avoid pywintypes mismatch
+    _user32 = ctypes.windll.user32
+
     def tray_loop():
         msg = wintypes.MSG()
-        while win32gui.GetMessage(msg, 0, 0, 0) != (0, 0):
-            if msg.message == win32con.WM_USER + 1:
-                if msg.lparam == win32con.WM_RBUTTONUP:
-                    cx, cy = win32api.GetCursorPos()
-                    win32gui.SetForegroundWindow(hwnd)
-                    win32gui.TrackPopupMenu(hmenu, win32con.TPM_LEFTALIGN,
-                                            cx, cy, 0, hwnd, None)
-                    win32gui.PostMessage(hwnd, win32con.WM_NULL, 0, 0)
-                elif msg.lparam == win32con.WM_LBUTTONDBLCLK:
-                    pass  # reserved for future toggle
-            elif msg.message == win32con.WM_COMMAND:
+        pmsg = ctypes.byref(msg)
+        while _user32.GetMessageW(pmsg, None, 0, 0) != 0:
+            if msg.message == 0x0111:  # WM_COMMAND
                 wid = msg.wParam & 0xFFFF
                 if wid == 1:
                     text = clipboard_text()
@@ -360,19 +356,24 @@ def setup_tray(tts: TTS):
                 elif wid == 99:
                     win32gui.Shell_NotifyIcon(win32con.NIM_DELETE, nid)
                     win32gui.PostQuitMessage(0)
-                # Voice
                 elif 10 <= wid < 10 + len(VOICES):
                     key = list(VOICES.keys())[wid - 10]
                     tts.voice_key = key
                     log(f"Voice: {VOICES[key][1]}")
-                # Rate
                 elif 30 <= wid < 30 + len(RATES):
                     key = list(RATES.keys())[wid - 30]
                     tts.rate_key = key
                     log(f"Rate: {key}")
+            elif msg.message == win32con.WM_USER + 1:
+                if msg.lparam == win32con.WM_RBUTTONUP:
+                    cx, cy = win32api.GetCursorPos()
+                    win32gui.SetForegroundWindow(hwnd)
+                    win32gui.TrackPopupMenu(hmenu, win32con.TPM_LEFTALIGN,
+                                            cx, cy, 0, hwnd, None)
+                    win32gui.PostMessage(hwnd, win32con.WM_NULL, 0, 0)
             else:
-                win32gui.TranslateMessage(msg)
-                win32gui.DispatchMessage(msg)
+                _user32.TranslateMessage(pmsg)
+                _user32.DispatchMessageW(pmsg)
 
     t = threading.Thread(target=tray_loop, daemon=True)
     t.start()
