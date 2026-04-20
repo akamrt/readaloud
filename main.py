@@ -263,7 +263,7 @@ class Selector:
         win32gui.SetLayeredWindowAttributes(self._hwnd, 0, 160, win32con.LWA_ALPHA)
         win32gui.ShowWindow(self._hwnd, win32con.SW_SHOW)
         win32gui.SetForegroundWindow(self._hwnd)
-        msg = win32gui.MSG()
+        msg = wintypes.MSG()
         while win32gui.GetMessage(msg, 0, 0, 0) != (0, 0):
             win32gui.TranslateMessage(msg)
             win32gui.DispatchMessage(msg)
@@ -326,7 +326,7 @@ def setup_tray(tts: TTS):
 
     # Tray message loop
     def tray_loop():
-        msg = win32gui.MSG()
+        msg = wintypes.MSG()
         while win32gui.GetMessage(msg, 0, 0, 0) != (0, 0):
             if msg.message == win32con.WM_USER + 1:
                 if msg.lparam == win32con.WM_RBUTTONUP:
