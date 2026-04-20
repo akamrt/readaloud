@@ -28,10 +28,26 @@ except ImportError:
     MISSING.append("Pillow")
 
 try:
-    import win32gui, win32con, win32clipboard, win32api, win32ui
+    import win32gui, win32clipboard, win32api, win32ui
+    import win32con
 except ImportError:
-    MISSING.append("pywin32")
+    print("ERROR: pywin32 not installed. Run: pip install pywin32")
+    sys.exit(1)
 
+# Workaround: add missing shell notify constants if not present
+for _c, _v in [("NIF_MESSAGE", 0x00000000), ("NIF_ICON", 0x00000002),
+               ("NIF_TIP", 0x00000004), ("NIM_ADD", 0x00000000),
+               ("NIM_MODIFY", 0x00000001), ("NIM_DELETE", 0x00000002),
+               ("WS_EX_TRANSPARENT", 0x00000020), ("WS_EX_TOPMOST", 0x00000008),
+               ("WS_POPUP", 0x80000000), ("WS_EX_TOOLWINDOW", 0x00000080),
+               ("LWA_ALPHA", 0x00000002), ("WM_USER", 0x0400),
+               ("IDI_APPLICATION", 0x7F00), ("IDC_CROSS", 0x7F02),
+               ("CW_USEDEFAULT", 0x80000000), ("MF_STRING", 0x00000000),
+               ("MF_POPUP", 0x00000010), ("MF_SEPARATOR", 0x00000800),
+               ("MF_CHECKED", 0x00000008), ("MF_STRING", 0x00000000),
+               ("TPM_LEFTALIGN", 0x0000), ("WM_NULL", 0x0000)]:
+    if not hasattr(win32con, _c):
+        setattr(win32con, _c, _v)
 if MISSING:
     print(f"Missing packages: {', '.join(MISSING)}")
     print("Run: pip install " + " ".join(MISSING))
