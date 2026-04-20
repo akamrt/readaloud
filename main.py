@@ -378,7 +378,7 @@ def setup_tray(tts: TTS):
     t.start()
     return nid, hwnd
 
-# ── Hotkey Pump ─────────────────────────────────────────────────
+# ── Hotkey Pump (pure ctypes) ───────────────────────────────────
 user32 = ctypes.windll.user32
 WM_HOTKEY, HOTKEY1, HOTKEY2 = 0x0312, 1, 2
 F6, F7 = 0x75, 0x76  # VK_F6, VK_F7
@@ -401,7 +401,8 @@ def hotkey_loop(tts: TTS, tray_hwnd):
     log("Ready! F6=Speak, F7=OCR")
 
     msg = wintypes.MSG()
-    while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+    pmsg = ctypes.byref(msg)
+    while user32.GetMessageW(pmsg, None, 0, 0) != 0:
         if msg.message == WM_HOTKEY:
             if msg.wParam == HOTKEY1:
                 text = clipboard_text()
@@ -427,8 +428,9 @@ def hotkey_loop(tts: TTS, tray_hwnd):
                 else:
                     log("F7: cancelled")
         else:
-            win32gui.TranslateMessage(msg)
-            win32gui.DispatchMessageW(msg)
+            # Dispatch non-hotkey messages via ctypes
+            user32.TranslateMessage(pmsg)
+            user32.DispatchMessageW(pmsg)
 
 # ── Main ────────────────────────────────────────────────────────
 if __name__ == "__main__":
