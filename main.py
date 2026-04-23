@@ -36,6 +36,12 @@ except ImportError:
     MISSING.append("Pillow")
 
 try:
+    from ppocr_lite import PPOCRLite
+    PP_OCR_AVAILABLE = True
+except ImportError:
+    PP_OCR_AVAILABLE = False
+
+try:
     import win32gui, win32clipboard, win32api, win32ui
     import win32con
 except ImportError:
@@ -318,6 +324,34 @@ def windows_ocr(path: str) -> str:
         log(f"OCR error: {e}")
         return ""
 
+_ppocr_engine = None
+
+def ai_ocr(path: str) -> str:
+    """Use ppocr-lite for OCR if available."""
+    global _ppocr_engine
+    if not PP_OCR_AVAILABLE:
+        return ""
+    try:
+        if _ppocr_engine is None:
+            log("Initializing AI OCR engine (first run may download models)...")
+            _ppocr_engine = PPOCRLite()
+        results = _ppocr_engine.run(path)
+        # Combine all text lines
+        text_lines = [result.text for result in results]
+        return "\n".join(text_lines)
+    except Exception as e:
+        log(f"AI OCR error: {e}")
+        return ""
+
+def ocr_image(path: str) -> str:
+    """Try AI OCR first, fallback to Windows OCR."""
+    text = ai_ocr(path)
+    if text:
+        log(f"OCR: AI engine used ({len(text)} chars)")
+        return text
+    log("OCR: Falling back to Windows OCR")
+    return windows_ocr(path)
+
 def capture_region(left: int, top: int, w: int, h: int) -> str:
     with mss.mss() as sct:
         sct.grab({"left": left, "top": top, "width": w, "height": h}).save(OCR_IMG)
@@ -482,7 +516,7 @@ def setup_tray(tts: TTS):
                         x1,y1,x2,y2 = r
                         if x2-x1 > 5 and y2-y1 > 5:
                             p = capture_region(x1, y1, x2-x1, y2-y1)
-                            text = windows_ocr(p)
+                            text = ocr_image(p)
                             if text:
                                 if tts.copy_ocr_to_clipboard:
                                     clipboard_set_text(text)
@@ -567,7 +601,7 @@ def hotkey_loop(tts: TTS, tray_hwnd):
                     x1,y1,x2,y2 = r
                     if x2-x1 > 5 and y2-y1 > 5:
                         p = capture_region(x1, y1, x2-x1, y2-y1)
-                        text = windows_ocr(p)
+                        text = ocr_image(p)
                         if text:
                             if tts.copy_ocr_to_clipboard:
                                 clipboard_set_text(text)

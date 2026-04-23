@@ -1,0 +1,3 @@
+# Optional AI OCR dependencies
+ppocr-lite>=0.5.0
+# numpy and onnxruntime will be installed automatically
