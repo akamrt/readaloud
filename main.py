@@ -111,7 +111,7 @@ class TTS:
     async def _synth(self, text: str):
         rate = RATES[self.rate_key]
         log(f"TTS: {self.voice}@{rate} → {text[:50]!r}...")
-        await edge_tts.Communicate(text, self.voice).save(AUDIO)
+        await edge_tts.Communicate(text, self.voice, rate=rate).save(AUDIO)
 
     def speak(self, text: str, block: bool = False):
         if not text.strip():
@@ -123,16 +123,30 @@ class TTS:
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(self._synth(text.strip()))
+                if not os.path.exists(AUDIO):
+                    log("Audio file not created")
+                    return
                 cmd = ["mplay32", "/play", "/close", AUDIO]
                 try:
                     subprocess.run(cmd, check=True,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except FileNotFoundError:
-                    # PowerShell fallback
-                    subprocess.run(
-                        ["powershell", "-c",
-                         f"(New-Object Media.SoundPlayer '{AUDIO}').PlaySync()"],
-                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    # Fallback: use default player
+                    if sys.platform == "win32":
+                        os.startfile(AUDIO)
+                    else:
+                        # Linux/macOS: try mpv, then ffplay, then vlc
+                        import shutil
+                        for player in ["mpv", "ffplay", "vlc"]:
+                            if shutil.which(player):
+                                subprocess.run([player, AUDIO], check=True)
+                                break
+                        else:
+                            # Last resort: PowerShell (Windows only)
+                            subprocess.run(
+                                ["powershell", "-c",
+                                 f"Start-Process '{AUDIO}'"],
+                                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception as e:
                 log(f"TTS error: {e}")
             finally:
