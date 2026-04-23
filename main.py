@@ -104,7 +104,7 @@ def log(msg):
 # ── Config ────────────────────────────────────────────────────────
 def load_config():
     """Load config from file, return defaults if missing."""
-    defaults = {"voice_key": "sonia", "rate_key": "normal"}
+    defaults = {"voice_key": "sonia", "rate_key": "normal", "copy_ocr_to_clipboard": False}
     try:
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -134,7 +134,7 @@ def open_settings_window(tts):
 
     window = tk.Toplevel(root)
     window.title("ReadAloud Settings")
-    window.geometry("400x300")
+    window.geometry("400x350")
     window.resizable(False, False)
 
     # Voice selection
@@ -155,6 +155,14 @@ def open_settings_window(tts):
     speed_combo.pack(fill="x")
     speed_combo.set(tts.rate_key)
 
+    # OCR options
+    ocr_frame = ttk.LabelFrame(window, text="OCR Options", padding=10)
+    ocr_frame.pack(fill="x", padx=10, pady=5)
+    copy_var = tk.BooleanVar(value=tts.copy_ocr_to_clipboard)
+    copy_check = ttk.Checkbutton(ocr_frame, text="Copy OCR text to clipboard automatically",
+                                 variable=copy_var)
+    copy_check.pack(anchor="w")
+
     # Test button
     def test_voice():
         tts.voice_key = voice_var.get()
@@ -168,6 +176,7 @@ def open_settings_window(tts):
     def save():
         tts.voice_key = voice_var.get()
         tts.rate_key = speed_var.get()
+        tts.copy_ocr_to_clipboard = copy_var.get()
         tts.save_config()
         log("Settings saved")
         root.destroy()
@@ -187,10 +196,15 @@ class TTS:
         config = load_config()
         self.voice_key = config.get("voice_key", "sonia")
         self.rate_key = config.get("rate_key", "normal")
+        self.copy_ocr_to_clipboard = config.get("copy_ocr_to_clipboard", False)
         self._proc = None
 
     def save_config(self):
-        write_config({"voice_key": self.voice_key, "rate_key": self.rate_key})
+        write_config({
+            "voice_key": self.voice_key,
+            "rate_key": self.rate_key,
+            "copy_ocr_to_clipboard": self.copy_ocr_to_clipboard
+        })
 
     @property
     def voice(self) -> str:
@@ -264,6 +278,18 @@ def clipboard_text() -> str | None:
     except Exception as e:
         log(f"Clipboard error: {e}")
     return None
+
+def clipboard_set_text(text: str) -> bool:
+    """Copy text to clipboard."""
+    try:
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+        win32clipboard.CloseClipboard()
+        return True
+    except Exception as e:
+        log(f"Clipboard set error: {e}")
+        return False
 
 # ── OCR ─────────────────────────────────────────────────────────
 def windows_ocr(path: str) -> str:
@@ -458,6 +484,9 @@ def setup_tray(tts: TTS):
                             p = capture_region(x1, y1, x2-x1, y2-y1)
                             text = windows_ocr(p)
                             if text:
+                                if tts.copy_ocr_to_clipboard:
+                                    clipboard_set_text(text)
+                                    log(f"OCR copied to clipboard: {len(text)} chars")
                                 tts.speak(text, block=True)
                             else:
                                 log("OCR: no text found")
@@ -540,6 +569,9 @@ def hotkey_loop(tts: TTS, tray_hwnd):
                         p = capture_region(x1, y1, x2-x1, y2-y1)
                         text = windows_ocr(p)
                         if text:
+                            if tts.copy_ocr_to_clipboard:
+                                clipboard_set_text(text)
+                                log(f"F7 OCR copied to clipboard: {len(text)} chars")
                             log(f"F7 OCR → {len(text)} chars")
                             tts.speak(text, block=True)
                         else:
