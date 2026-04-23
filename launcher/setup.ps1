@@ -156,6 +156,13 @@ if ($useSystemPython) {
     }
 }
 
+# Upgrade pip to latest
+Write-Host "Upgrading pip..." -ForegroundColor Cyan
+& $pythonExe -m pip install --upgrade pip --no-warn-script-location
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Warning: pip upgrade failed. Continuing with existing pip." -ForegroundColor Yellow
+}
+
 # Download or update code
 Write-Host ""
 Write-Host "Checking for code updates..." -ForegroundColor Cyan
