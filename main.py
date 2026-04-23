@@ -1,11 +1,9 @@
-"""
-ReadAloud v2 — Cleaner, lighter version
-Nathan's TTS + OCR tool for Windows
-
-F6  → Read clipboard aloud
-F7  → OCR screenshot → read aloud
-Tray icon → change voice / rate / exit
-"""
+# ReadAloud v2 — Cleaner, lighter version
+# Nathan's TTS + OCR tool for Windows
+#
+# F6  → Read clipboard aloud
+# F7  → OCR screenshot → read aloud
+# Tray icon → change voice / rate / exit
 
 import os, sys, asyncio, threading, subprocess, tempfile, ctypes, json
 from ctypes import wintypes
@@ -129,6 +127,38 @@ def write_config(config):
     except Exception as e:
         log(f"Config save error: {e}")
 
+def show_startup_notification():
+    """Show a brief startup window so user knows the app is running."""
+    if not TK_AVAILABLE:
+        return
+    
+    def _show():
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            
+            # Create a small notification window
+            notif = tk.Toplevel(root)
+            notif.title("ReadAloud")
+            notif.geometry("300x80+{}+{}".format(
+                notif.winfo_screenwidth() - 320,
+                notif.winfo_screenheight() - 120
+            ))
+            notif.resizable(False, False)
+            notif.attributes("-topmost", True)
+            
+            label = tk.Label(notif, text="✅ ReadAloud is running!\n\nLook for the icon in your system tray.", 
+                           font=("Segoe UI", 10), pady=15)
+            label.pack()
+            
+            # Auto-close after 3 seconds
+            notif.after(3000, root.destroy)
+            root.mainloop()
+        except Exception as e:
+            log(f"Notification error: {e}")
+    
+    threading.Thread(target=_show, daemon=True).start()
+
 def open_settings_window(tts):
     """Open a settings window using tkinter."""
     if not TK_AVAILABLE:
@@ -241,27 +271,18 @@ class TTS:
                 if not os.path.exists(AUDIO):
                     log("Audio file not created")
                     return
-                cmd = ["mplay32", "/play", "/close", AUDIO]
-                try:
-                    subprocess.run(cmd, check=True,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except FileNotFoundError:
-                    # Fallback: use default player
-                    if sys.platform == "win32":
-                        os.startfile(AUDIO)
+                # Use os.startfile on Windows (opens with default player)
+                if sys.platform == "win32":
+                    os.startfile(AUDIO)
+                else:
+                    # Linux/macOS: try mpv, then ffplay, then vlc
+                    import shutil
+                    for player in ["mpv", "ffplay", "vlc"]:
+                        if shutil.which(player):
+                            subprocess.run([player, AUDIO], check=True)
+                            break
                     else:
-                        # Linux/macOS: try mpv, then ffplay, then vlc
-                        import shutil
-                        for player in ["mpv", "ffplay", "vlc"]:
-                            if shutil.which(player):
-                                subprocess.run([player, AUDIO], check=True)
-                                break
-                        else:
-                            # Last resort: PowerShell (Windows only)
-                            subprocess.run(
-                                ["powershell", "-c",
-                                 f"Start-Process '{AUDIO}'"],
-                                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        log("No audio player found")
             except Exception as e:
                 log(f"TTS error: {e}")
             finally:
@@ -301,19 +322,18 @@ def clipboard_set_text(text: str) -> bool:
 def windows_ocr(path: str) -> str:
     """Run Windows.Media.Ocr via PowerShell."""
     p = path.replace("\\", "\\\\")
-    ps = f"""
-    Add-Type -AssemblyName System.Runtime.WindowsRuntime
-    $null = [Windows.Media.Ocr.OcrEngine,Windows.Media.Ocr,ContentType=WindowsRuntime]
-    $null = [Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
-    $null = [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
-    $file  = [Windows.Storage.StorageFile]::GetFileFromPathAsync('{p}').GetAwaiter().GetResult()
-    $stream = $file.OpenReadAsync().GetAwaiter().GetResult()
-    $dec   = [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream).GetAwaiter().GetResult()
-    $bmp   = $dec.GetAsyncWaitForResult()
-    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-    if ($null -eq $engine) {{ ""; exit }}
-    ($engine.RecognizeAsync($bmp).GetAwaiter().GetResult()).Lines.Text
-    """
+    ps = f"""Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Media.Ocr.OcrEngine,Windows.Media.Ocr,ContentType=WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
+$null = [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
+$file  = [Windows.Storage.StorageFile]::GetFileFromPathAsync('{p}').GetAwaiter().GetResult()
+$stream = $file.OpenReadAsync().GetAwaiter().GetResult()
+$dec   = [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream).GetAwaiter().GetResult()
+$bmp   = $dec.GetSoftwareBitmapAsync().GetAwaiter().GetResult()
+$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if ($null -eq $engine) {{ ""; exit }}
+($engine.RecognizeAsync($bmp).GetAwaiter().GetResult()).Lines.Text
+"""
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
@@ -621,5 +641,9 @@ def hotkey_loop(tts: TTS, tray_hwnd):
 if __name__ == "__main__":
     log(f"{APP} v2 starting...")
     tts = TTS()
+    
+    # Show startup notification
+    show_startup_notification()
+    
     setup_tray(tts)
     hotkey_loop(tts, None)
