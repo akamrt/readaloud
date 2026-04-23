@@ -7,8 +7,16 @@ F7  → OCR screenshot → read aloud
 Tray icon → change voice / rate / exit
 """
 
-import os, sys, asyncio, threading, subprocess, tempfile, ctypes
+import os, sys, asyncio, threading, subprocess, tempfile, ctypes, json
 from ctypes import wintypes
+
+# Optional tkinter for GUI
+try:
+    import tkinter as tk
+    from tkinter import ttk
+    TK_AVAILABLE = True
+except ImportError:
+    TK_AVAILABLE = False
 
 # ── Dependencies ─────────────────────────────────────────────────
 MISSING = []
@@ -59,6 +67,9 @@ TMP      = tempfile.gettempdir()
 AUDIO    = os.path.join(TMP, "readaloud.mp3")
 OCR_IMG  = os.path.join(TMP, "readaloud_ocr.png")
 LOG_FILE = os.path.join(TMP, "readaloud.log")
+# Config file
+CONFIG_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'readaloud')
+CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 
 VOICES = {
     "sonia":   ("en-GB-SoniaNeural",   "🇬🇧 Sonia (UK Female)"),
@@ -90,12 +101,96 @@ def log(msg):
     except Exception:
         pass
 
+# ── Config ────────────────────────────────────────────────────────
+def load_config():
+    """Load config from file, return defaults if missing."""
+    defaults = {"voice_key": "sonia", "rate_key": "normal"}
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                defaults.update(data)
+    except Exception as e:
+        log(f"Config load error: {e}")
+    return defaults
+
+def write_config(config):
+    """Save config to file."""
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        log(f"Config save error: {e}")
+
+def open_settings_window(tts):
+    """Open a settings window using tkinter."""
+    if not TK_AVAILABLE:
+        log("Tkinter not available")
+        return
+
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    window = tk.Toplevel(root)
+    window.title("ReadAloud Settings")
+    window.geometry("400x300")
+    window.resizable(False, False)
+
+    # Voice selection
+    voice_frame = ttk.LabelFrame(window, text="Voice", padding=10)
+    voice_frame.pack(fill="x", padx=10, pady=5)
+    voice_var = tk.StringVar(value=tts.voice_key)
+    voice_combo = ttk.Combobox(voice_frame, textvariable=voice_var,
+                               values=list(VOICES.keys()), state="readonly")
+    voice_combo.pack(fill="x")
+    voice_combo.set(tts.voice_key)
+
+    # Speed selection
+    speed_frame = ttk.LabelFrame(window, text="Speed", padding=10)
+    speed_frame.pack(fill="x", padx=10, pady=5)
+    speed_var = tk.StringVar(value=tts.rate_key)
+    speed_combo = ttk.Combobox(speed_frame, textvariable=speed_var,
+                               values=list(RATES.keys()), state="readonly")
+    speed_combo.pack(fill="x")
+    speed_combo.set(tts.rate_key)
+
+    # Test button
+    def test_voice():
+        tts.voice_key = voice_var.get()
+        tts.rate_key = speed_var.get()
+        tts.speak("This is a test of the selected voice and speed.", block=False)
+
+    test_btn = ttk.Button(window, text="Test Voice", command=test_voice)
+    test_btn.pack(pady=10)
+
+    # Save button
+    def save():
+        tts.voice_key = voice_var.get()
+        tts.rate_key = speed_var.get()
+        tts.save_config()
+        log("Settings saved")
+        root.destroy()
+
+    save_btn = ttk.Button(window, text="Save", command=save)
+    save_btn.pack(pady=5)
+
+    # Cancel button
+    cancel_btn = ttk.Button(window, text="Cancel", command=root.destroy)
+    cancel_btn.pack(pady=5)
+
+    root.mainloop()
+
 # ── TTS ─────────────────────────────────────────────────────────
 class TTS:
     def __init__(self):
-        self.voice_key = "sonia"
-        self.rate_key   = "normal"
-        self._proc      = None
+        config = load_config()
+        self.voice_key = config.get("voice_key", "sonia")
+        self.rate_key = config.get("rate_key", "normal")
+        self._proc = None
+
+    def save_config(self):
+        write_config({"voice_key": self.voice_key, "rate_key": self.rate_key})
 
     @property
     def voice(self) -> str:
@@ -331,6 +426,7 @@ def setup_tray(tts: TTS):
     win32gui.AppendMenu(hmenu, win32con.MF_POPUP, sub_r, "⚡ Speed")
 
     win32gui.AppendMenu(hmenu, win32con.MF_SEPARATOR, 0, "")
+    win32gui.AppendMenu(hmenu, win32con.MF_STRING, 4,  "⚙  Settings")
     win32gui.AppendMenu(hmenu, win32con.MF_STRING, 99, "❌  Exit")
 
     # NID tuple: (hwnd, id, flags, msg, hicon, tip)
@@ -367,16 +463,24 @@ def setup_tray(tts: TTS):
                                 log("OCR: no text found")
                 elif wid == 3:
                     tts.stop()
+                elif wid == 4:
+                    # Settings
+                    if TK_AVAILABLE:
+                        threading.Thread(target=open_settings_window, args=(tts,), daemon=True).start()
+                    else:
+                        log("Tkinter not available for settings UI")
                 elif wid == 99:
                     win32gui.Shell_NotifyIcon(win32con.NIM_DELETE, nid)
                     win32gui.PostQuitMessage(0)
                 elif 10 <= wid < 10 + len(VOICES):
                     key = list(VOICES.keys())[wid - 10]
                     tts.voice_key = key
+                    tts.save_config()
                     log(f"Voice: {VOICES[key][1]}")
                 elif 30 <= wid < 30 + len(RATES):
                     key = list(RATES.keys())[wid - 30]
                     tts.rate_key = key
+                    tts.save_config()
                     log(f"Rate: {key}")
             elif msg.message == win32con.WM_USER + 1:
                 if msg.lparam == win32con.WM_RBUTTONUP:
